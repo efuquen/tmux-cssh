@@ -7,6 +7,7 @@ USER=""
 IDENTITY=""
 FILENAME=""
 SSH_ARGS=""
+SSH_PARAMS=""
 SYNCHRONIZE_PANES="true"
 
 # Config-file in home directory
@@ -31,6 +32,9 @@ syntax() {
 
 	echo "-sc | --ssh-server-connect-string          SSH-connection-string, multiple."
 	echo
+
+        echo "-sp | --ssh-parameters                     SSH parameters after connection string, multiple."
+        echo
 
 	echo "-sa | --ssh_args                           SSH connection arguments, used on every session."
 	echo
@@ -73,14 +77,39 @@ output() {
 
 # Analyse given parameter into environment
 analyseParameters() {
+        #initially set to true so params won't get set until at lest first host has been set
+        cur_params_set=true
 	# Walk through parameters
+        #initiall
 	for param in "$@"; do
 		case "$1" in
 			-h|--help) syntax; exit;;
 			-u|--user) USER="$2"; shift;;
 			-c|--certificate|-i|--identity) IDENTITY="$2"; shift;;
-			-sc|--ssh-server-connect-string) HOSTS="${HOSTS} $2"; shift;;
+			-sc|--ssh-server-connect-string) 
+                          HOSTS="${HOSTS} $2"
+                          if ! $cur_params_set; then
+                            if [ $SSH_PARAMS == "" ]; then
+                              SSH_PARAMS=","
+                            else
+                              SSH_PARAMS="${SSH_PARAMS},,"
+                            fi
+                          fi
+                          cur_params_set=false
+                          shift;;
 			-sa|--ssh_args) SSH_ARGS="${SSH_ARGS} $2"; shift;;
+                        -sp|--ssh-parameters) 
+                          echo "got -sp, cur_params_set $cur_params_set, ${@:2}"
+                          if ! $cur_params_set; then
+                            echo "set -sp $2"
+                            if [[ $SSH_PARAMS == "" ]]; then
+                              SSH_PARAMS="${@:2}"
+                            else
+                              SSH_PARAMS="${SSH_PARAMS},${@:2}"
+                            fi
+                            cur_params_set=true
+                          fi
+                          shift;;
 			-ts|--tmux-session-name) TMUX_SESSION_NAME="$2"; shift;;
 			-set|--set-epoch-time) TMUX_SESSION_NAME="$(date +"%s")";;
 			-ns|--new-session) TMUX_SESSION_NAME="${TMUX_SESSION_NAME}_$(date +%s)";;
@@ -199,9 +228,14 @@ fi
 
 initTmuxCall="true"
 
+IFS=$',' read -a SSH_PARAMS <<< "$SSH_PARAMS"
+echo "SSH_PARAMS: $SSH_PARAMS"
 # Walk through hosts
+i=0
 for host in ${HOSTS[@]}; do
-	connectString="${host}"
+        
+	connectString="${host} ${SSH_PARAMS[i]}"
+        echo "connectString: $connectString"
 
 	# Add user-part
 	if [ "${USER}" != "" ]; then
@@ -237,6 +271,7 @@ for host in ${HOSTS[@]}; do
     tmux split-window -t "${TMUX_SESSION_NAME}" "${connectString}" && \
     tmux select-layout -t "${TMUX_SESSION_NAME}" tiled
 	fi
+    i=$(($i + 1))
 done
 
 # If no session was able to start, say so and just exit.
